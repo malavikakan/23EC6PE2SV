@@ -1,0 +1,225 @@
+// ============================================================
+// Testbench - Shift Register with Coverage & Waveform
+// ============================================================
+
+`timescale 1ns/1ps
+
+module tb_shift_register;
+
+    // ---- Parameters ----
+    parameter WIDTH = 8;
+
+    // ---- DUT Signals ----
+    logic             clk;
+    logic             rst_n;
+    logic             shift_en;
+    logic             load;
+    logic             serial_in;
+    logic [WIDTH-1:0] parallel_in;
+    logic [WIDTH-1:0] parallel_out;
+    logic             serial_out;
+
+    // ---- DUT Instantiation ----
+    shift_register #(.WIDTH(WIDTH)) dut (
+        .clk          (clk),
+        .rst_n        (rst_n),
+        .shift_en     (shift_en),
+        .load         (load),
+        .serial_in    (serial_in),
+        .parallel_in  (parallel_in),
+        .parallel_out (parallel_out),
+        .serial_out   (serial_out)
+    );
+
+    // ---- Clock Generation: 10ns period ----
+    initial clk = 0;
+    always #5 clk = ~clk;
+
+    // ============================================================
+    // COVERGROUP - Functional Coverage
+    // ============================================================
+    covergroup cg_shift_reg @(posedge clk);
+
+        // Cover reset assertion
+        cp_rst: coverpoint rst_n {
+            bins asserted   = {0};
+            bins deasserted = {1};
+        }
+
+        // Cover shift enable
+        cp_shift_en: coverpoint shift_en {
+            bins disabled = {0};
+            bins enabled  = {1};
+        }
+
+        // Cover parallel load
+        cp_load: coverpoint load {
+            bins no_load = {0};
+            bins loading = {1};
+        }
+
+        // Cover serial input values
+        cp_serial_in: coverpoint serial_in {
+            bins low  = {0};
+            bins high = {1};
+        }
+
+        // Cover parallel input data corners
+        cp_parallel_in: coverpoint parallel_in {
+            bins all_zeros  = {8'h00};
+            bins all_ones   = {8'hFF};
+            bins mid_low    = {[8'h01 : 8'h7F]};
+            bins mid_high   = {[8'h80 : 8'hFE]};
+        }
+
+        // Cover output corners
+        cp_parallel_out: coverpoint parallel_out {
+            bins all_zeros  = {8'h00};
+            bins all_ones   = {8'hFF};
+            bins other      = default;
+        }
+
+        // Cross coverage: shift_en x serial_in
+        cx_shift_serial: cross cp_shift_en, cp_serial_in;
+
+        // Cross coverage: load x parallel_in corners
+        cx_load_data: cross cp_load, cp_parallel_in;
+
+    endgroup
+
+    cg_shift_reg cg_inst = new();
+
+    // ============================================================
+    // TASK: Apply Reset
+    // ============================================================
+    task apply_reset();
+        rst_n      = 0;
+        shift_en   = 0;
+        load       = 0;
+        serial_in  = 0;
+        parallel_in = '0;
+        @(posedge clk); #1;
+        @(posedge clk); #1;
+        rst_n = 1;
+        @(posedge clk); #1;
+        $display("[%0t] Reset released. parallel_out = %b", $time, parallel_out);
+    endtask
+
+    // ============================================================
+    // TASK: Parallel Load
+    // ============================================================
+    task parallel_load(input logic [WIDTH-1:0] data);
+        load        = 1;
+        parallel_in = data;
+        @(posedge clk); #1;
+        load = 0;
+        $display("[%0t] Parallel Load: 0x%0h -> parallel_out = 0b%b", $time, data, parallel_out);
+    endtask
+
+    // ============================================================
+    // TASK: Shift N bits
+    // ============================================================
+    task shift_bits(input int n, input logic s_in);
+        shift_en  = 1;
+        serial_in = s_in;
+        repeat(n) begin
+            @(posedge clk); #1;
+            $display("[%0t] Shift: serial_in=%b | parallel_out = 0b%b | serial_out = %b",
+                     $time, s_in, parallel_out, serial_out);
+        end
+        shift_en = 0;
+    endtask
+
+    // ============================================================
+    // MAIN TEST SEQUENCE
+    // ============================================================
+    initial begin
+        // Waveform dump (EDA Playground uses $dumpfile/$dumpvars for EPWave)
+        $dumpfile("dump.vcd");
+        $dumpvars(0, tb_shift_register);
+
+        $display("========================================");
+        $display("  Shift Register Testbench Starting");
+        $display("========================================");
+
+        // --- Test 1: Reset ---
+        $display("\n[TEST 1] Apply Reset");
+        apply_reset();
+
+        // --- Test 2: Parallel Load with 0xAB ---
+        $display("\n[TEST 2] Parallel Load 0xAB");
+        parallel_load(8'hAB);
+
+        // --- Test 3: Shift in 0s (8 cycles) ---
+        $display("\n[TEST 3] Shift in 8 zeros (should serialize 0xAB out)");
+        shift_bits(8, 1'b0);
+
+        // --- Test 4: Parallel Load with 0xFF ---
+        $display("\n[TEST 4] Parallel Load 0xFF");
+        parallel_load(8'hFF);
+
+        // --- Test 5: Shift in 1s (8 cycles) ---
+        $display("\n[TEST 5] Shift in 8 ones");
+        shift_bits(8, 1'b1);
+
+        // --- Test 6: Parallel Load all zeros ---
+        $display("\n[TEST 6] Parallel Load 0x00");
+        parallel_load(8'h00);
+        shift_bits(4, 1'b1);
+
+        // --- Test 7: Random stimulus ---
+        $display("\n[TEST 7] Random Stimulus (20 cycles)");
+        repeat(20) begin
+            shift_en    = $urandom_range(0,1);
+            load        = $urandom_range(0,1);
+            serial_in   = $urandom_range(0,1);
+            parallel_in = $urandom_range(0,255);
+            @(posedge clk); #1;
+        end
+        shift_en = 0; load = 0;
+
+        // --- Test 8: Reset in middle of operation ---
+        $display("\n[TEST 8] Reset mid-operation");
+        parallel_load(8'hC3);
+        shift_en = 1; serial_in = 1;
+        @(posedge clk); #1;
+        rst_n = 0;       // Assert reset
+        @(posedge clk); #1;
+        rst_n = 1;
+        shift_en = 0;
+        @(posedge clk); #1;
+        $display("[%0t] After mid-op reset: parallel_out = 0b%b (expect 00000000)", $time, parallel_out);
+
+        // ---- Print Coverage ----
+        $display("\n========================================");
+        $display("  Functional Coverage Summary");
+        $display("========================================");
+        $display("  Coverage = %.2f%%", cg_inst.get_coverage());
+        $display("========================================\n");
+
+        #20;
+        $finish;
+    end
+
+    // ============================================================
+    // ASSERTION: After reset, output must be 0
+    // ============================================================
+    property p_reset_clears_output;
+        @(posedge clk) (!rst_n) |=> (parallel_out == '0);
+    endproperty
+
+    assert property (p_reset_clears_output)
+        else $error("[ASSERT FAIL] Output not cleared after reset at time %0t", $time);
+
+    // ============================================================
+    // ASSERTION: Load takes effect next clock
+    // ============================================================
+    property p_load_works;
+        logic [WIDTH-1:0] d;
+        @(posedge clk) (load && rst_n, d = parallel_in) |=> (parallel_out == d);
+    endproperty
+
+    assert property (p_load_works)
+        else $error("[ASSERT FAIL] Parallel load did not latch correctly at time %0t", $time);
+
+endmodule
