@@ -6,8 +6,8 @@ module digital_clock (
   input  logic clk,
   input  logic rst,
 
-  output logic [5:0] sec,   // 0–59
-  output logic [5:0] min    // 0–59
+  output logic [5:0] sec,
+  output logic [5:0] min
 );
 
   always_ff @(posedge clk or posedge rst) begin
@@ -19,11 +19,9 @@ module digital_clock (
 
     else begin
 
-      // Seconds
       if (sec == 59) begin
         sec <= 0;
 
-        // Minutes
         if (min == 59)
           min <= 0;
         else
