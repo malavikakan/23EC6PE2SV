@@ -1,17 +1,24 @@
 `timescale 1ns/1ps
 
-package clock_pkg;
+module top;
 
-  class clock_txn;
+  logic clk = 0;
 
-    rand int cycles;
+  // Clock generation
+  always #5 clk = ~clk;
 
-    // Run long enough to see wrap
-    constraint c1 {
-      cycles inside {[200:500]};
-    }
+  // Instantiate interface
+  clock_if intf (clk);
 
-  endclass
+  // Instantiate DUT
+  digital_clock dut (
+    .clk (clk),
+    .rst (intf.rst),
+    .sec (intf.sec),
+    .min (intf.min)
+  );
 
-endpackage
+  // Instantiate Testbench
+  clock_tb tb (intf);
 
+endmodule
